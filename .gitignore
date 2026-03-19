@@ -1,0 +1,52 @@
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Virtual environments ──────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Environment files ─────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ── Docker ────────────────────────────────────────────────────
+*.log
+docker-compose.override.yml
+
+# ── Databases ─────────────────────────────────────────────────
+*.db
+*.sqlite3
+
+# ── IDE ───────────────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Alembic ───────────────────────────────────────────────────
+# Keep versions tracked
+!services/*/alembic/versions/*.py
+
+# ── Node (para front-end futuro) ──────────────────────────────
+node_modules/
+.next/
+dist/

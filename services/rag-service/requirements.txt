@@ -1,0 +1,7 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+# MVP 4 — adicionar:
+# langchain==0.3.x
+# openai==1.x
+# sentence-transformers==3.x
+# pgvector==0.3.x

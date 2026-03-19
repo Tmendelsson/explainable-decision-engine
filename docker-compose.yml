@@ -1,0 +1,80 @@
+# ============================================================
+# Explainable Decision Engine — Docker Compose
+# MVP 1: Decision API + PostgreSQL
+# ============================================================
+
+version: '3.9'
+
+services:
+
+  # ── Decision API ─────────────────────────────────────────
+  decision-api:
+    build:
+      context: ./services/decision-api
+      dockerfile: Dockerfile
+    container_name: decision-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://decision_user:decision_pass@postgres:5432/decision_engine
+      - APP_ENV=development
+      - DEBUG=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./services/decision-api:/app
+    networks:
+      - decision-net
+    restart: unless-stopped
+
+  # ── PostgreSQL ────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: decision-postgres
+    environment:
+      POSTGRES_USER: decision_user
+      POSTGRES_PASSWORD: decision_pass
+      POSTGRES_DB: decision_engine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decision_user -d decision_engine"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - decision-net
+    restart: unless-stopped
+
+  # ── pgAdmin (opcional para inspeção visual) ───────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: decision-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@decision.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - decision-net
+    profiles:
+      - tools
+
+  # ============================================================
+  # MVP 2 — Adicionar: enrichment-service, rule-engine-service, rabbitmq
+  # MVP 3 — Adicionar: audit-service, redis
+  # MVP 4 — Adicionar: rag-service, llm-reasoning-service, pgvector
+  # ============================================================
+
+volumes:
+  postgres_data:
+
+networks:
+  decision-net:
+    driver: bridge
