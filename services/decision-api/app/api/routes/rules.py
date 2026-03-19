@@ -41,12 +41,12 @@ async def create_rule(
 ):
     """Adiciona uma nova regra ao motor de decisão."""
     import uuid
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     rule = Rule(
         id=str(uuid.uuid4()),
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
         **rule_data.model_dump(),
     )
     db.add(rule)

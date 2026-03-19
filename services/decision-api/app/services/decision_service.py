@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,7 +53,7 @@ async def process_decision(request: DecisionRequest, db: AsyncSession) -> Decisi
         risk_score=risk_score,
         matched_rules=all_matched,
         input_payload=request.model_dump(),
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.utcnow(),
     )
 
     db.add(decision)

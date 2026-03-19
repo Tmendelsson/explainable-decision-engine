@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import String, Float, Integer, Boolean, JSON, Text, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
@@ -29,5 +29,5 @@ class Decision(Base):
     input_payload: Mapped[dict] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+        DateTime, nullable=False, default=lambda: datetime.utcnow()
     )
