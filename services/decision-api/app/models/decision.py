@@ -1,7 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 
-from sqlalchemy import String, Float, Integer, Boolean, JSON, Text, DateTime
+from sqlalchemy import DateTime, Float, Index, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -9,6 +10,11 @@ from app.database import Base
 
 class Decision(Base):
     __tablename__ = "decisions"
+    __table_args__ = (
+        Index("ix_decisions_product", "product"),
+        Index("ix_decisions_status", "status"),
+        Index("ix_decisions_created_at", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
@@ -20,7 +26,7 @@ class Decision(Base):
     product: Mapped[str] = mapped_column(String(100), nullable=False)
     monthly_income: Mapped[float] = mapped_column(Float, nullable=False)
     age: Mapped[int] = mapped_column(Integer, nullable=False)
-    credit_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    credit_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="completed")
     decision: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -29,5 +35,5 @@ class Decision(Base):
     input_payload: Mapped[dict] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.utcnow()
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )

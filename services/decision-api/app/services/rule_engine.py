@@ -1,4 +1,7 @@
+import logging
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 # Mapeamento de operadores para funções comparadoras
 OPERATORS: dict[str, Callable[[float, float], bool]] = {
@@ -35,6 +38,11 @@ def evaluate_rules(
 
         operator_fn = OPERATORS.get(rule.operator)
         if operator_fn is None:
+            logger.warning(
+                '"Skipping rule with unknown operator", "rule": "%s", "operator": "%s"',
+                rule.name,
+                rule.operator,
+            )
             continue
 
         try:
@@ -44,7 +52,12 @@ def evaluate_rules(
                 else:
                     matched_flag.append(rule.name)
                     total_penalty += rule.weight
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                '"Type conversion failed for rule", "rule": "%s", "error": "%s"',
+                rule.name,
+                str(exc),
+            )
             continue
 
     return matched_deny, matched_flag, total_penalty

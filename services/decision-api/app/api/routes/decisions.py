@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.limiter import limiter
 from app.database import get_db
 from app.schemas.decision import DecisionRequest, DecisionResponse, DecisionDetailResponse
 from app.services.decision_service import process_decision, get_decision_by_transaction
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/decisions", tags=["decisions"])
 
 
@@ -14,8 +18,10 @@ router = APIRouter(prefix="/decisions", tags=["decisions"])
     status_code=status.HTTP_201_CREATED,
     summary="Submeter solicitação de decisão",
 )
+@limiter.limit("100/minute")
 async def create_decision(
-    request: DecisionRequest,
+    request: Request,
+    payload: DecisionRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -24,7 +30,7 @@ async def create_decision(
     A decisão é baseada em regras dinâmicas configuradas no banco de dados.
     Cada regra pode ter ação `deny` (eliminatória) ou `flag`/`manual_review` (penalidade no score).
     """
-    decision = await process_decision(request, db)
+    decision = await process_decision(payload, db)
     return decision
 
 
@@ -33,7 +39,9 @@ async def create_decision(
     response_model=DecisionDetailResponse,
     summary="Consultar decisão por transaction_id",
 )
+@limiter.limit("200/minute")
 async def get_decision(
+    request: Request,
     transaction_id: str,
     db: AsyncSession = Depends(get_db),
 ):
