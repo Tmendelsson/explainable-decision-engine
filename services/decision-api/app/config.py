@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     app_name: str = "Explainable Decision Engine"
     app_version: str = "1.0.0"
     debug: bool = False
+    app_env: str = "development"
 
     # Must be set via .env — no hardcoded default to avoid credential leaks
     database_url: str
@@ -22,7 +23,11 @@ class Settings(BaseSettings):
     # In-memory rules cache TTL (seconds)
     rules_cache_ttl_seconds: int = 300
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 @lru_cache
