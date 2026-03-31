@@ -1,15 +1,23 @@
 import logging
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.limiter import limiter
 from app.database import get_db
-from app.schemas.decision import DecisionRequest, DecisionResponse, DecisionDetailResponse
-from app.services.decision_service import process_decision, get_decision_by_transaction
+from app.schemas.decision import DecisionRequest, DecisionDetailResponse, DecisionResponse
+from app.services.decision_service import get_decision_by_transaction, process_decision
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/decisions", tags=["decisions"])
+
+# When RABBITMQ_URL is set the request goes through the async orchestrator.
+# In tests (no RabbitMQ) the classic MVP-1 synchronous path is used instead.
+_USE_ORCHESTRATOR = bool(os.getenv("RABBITMQ_URL"))
+
+if _USE_ORCHESTRATOR:
+    from app.services.orchestrator import orchestrate_decision
 
 
 @router.post(
@@ -25,12 +33,16 @@ async def create_decision(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Processa uma solicitação de crédito e retorna a decisão imediatamente.
+    Processa uma solicitação de crédito e retorna a decisão.
 
-    A decisão é baseada em regras dinâmicas configuradas no banco de dados.
-    Cada regra pode ter ação `deny` (eliminatória) ou `flag`/`manual_review` (penalidade no score).
+    MVP 2: quando RABBITMQ_URL está configurado, o fluxo passa por
+    enrichment-service (HTTP) e rule-engine-service (RabbitMQ).
+    Sem RABBITMQ_URL (testes / MVP-1 local), usa o caminho síncrono.
     """
-    decision = await process_decision(payload, db)
+    if _USE_ORCHESTRATOR:
+        decision = await orchestrate_decision(payload, db)
+    else:
+        decision = await process_decision(payload, db)
     return decision
 
 

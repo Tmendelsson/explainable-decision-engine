@@ -1,29 +1,29 @@
 # ============================================================
 # Explainable Decision Engine — Docker Compose
-# MVP 1: Decision API + PostgreSQL
+# MVP 2: Decision API + Enrichment Service + Rule Engine Service
+#         + RabbitMQ + PostgreSQL
 # ============================================================
 
 version: '3.9'
 
 services:
 
-  # ── Decision API ─────────────────────────────────────────
-  decision-api:
-    build:
-      context: ./services/decision-api
-      dockerfile: Dockerfile
-    container_name: decision-api
-    ports:
-      - "8000:8000"
+  # ── RabbitMQ ──────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: decision-rabbitmq
+    hostname: rabbitmq
     environment:
-      - DATABASE_URL=postgresql+asyncpg://decision_user:decision_pass@postgres:5432/decision_engine
-      - APP_ENV=development
-      - DEBUG=true
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - ./services/decision-api:/app
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"   # Management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - decision-net
     restart: unless-stopped
@@ -50,6 +50,72 @@ services:
       - decision-net
     restart: unless-stopped
 
+  # ── Enrichment Service ────────────────────────────────────
+  enrichment-service:
+    build:
+      context: ./services/enrichment-service
+      dockerfile: Dockerfile
+    container_name: enrichment-service
+    ports:
+      - "8001:8001"
+    environment:
+      - APP_ENV=development
+      - DEBUG=false
+    networks:
+      - decision-net
+    restart: unless-stopped
+
+  # ── Rule Engine Service ───────────────────────────────────
+  rule-engine-service:
+    build:
+      context: ./services/rule-engine-service
+      dockerfile: Dockerfile
+    container_name: rule-engine-service
+    ports:
+      - "8002:8002"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://decision_user:decision_pass@postgres:5432/decision_engine
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - APP_ENV=development
+      - DEBUG=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - decision-net
+    restart: unless-stopped
+
+  # ── Decision API ─────────────────────────────────────────
+  decision-api:
+    build:
+      context: ./services/decision-api
+      dockerfile: Dockerfile
+    container_name: decision-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://decision_user:decision_pass@postgres:5432/decision_engine
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - ENRICHMENT_SERVICE_URL=http://enrichment-service:8001
+      - APP_ENV=development
+      - DEBUG=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      enrichment-service:
+        condition: service_started
+      rule-engine-service:
+        condition: service_started
+    volumes:
+      - ./services/decision-api:/app
+    networks:
+      - decision-net
+    restart: unless-stopped
+
   # ── pgAdmin (opcional para inspeção visual) ───────────────
   pgadmin:
     image: dpage/pgadmin4:latest
@@ -67,7 +133,6 @@ services:
       - tools
 
   # ============================================================
-  # MVP 2 — Adicionar: enrichment-service, rule-engine-service, rabbitmq
   # MVP 3 — Adicionar: audit-service, redis
   # MVP 4 — Adicionar: rag-service, llm-reasoning-service, pgvector
   # ============================================================

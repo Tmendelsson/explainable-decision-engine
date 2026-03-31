@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,6 +17,8 @@ from app.api.routes import decisions, rules
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+_USE_MESSAGING = bool(os.getenv("RABBITMQ_URL"))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,8 +26,18 @@ async def lifespan(app: FastAPI):
     logger.info('"Application starting", "version": "%s"', settings.app_version)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    if _USE_MESSAGING:
+        from app.core.messaging import start_consumer
+        await start_consumer()
+        logger.info('"RulesEvaluated consumer started"')
+
     yield
+
     logger.info('"Application shutting down"')
+    if _USE_MESSAGING:
+        from app.core.messaging import close_messaging
+        await close_messaging()
     await engine.dispose()
 
 
@@ -33,7 +46,7 @@ app = FastAPI(
     version=settings.app_version,
     description=(
         "Motor de decisão explicável com regras dinâmicas, score de risco "
-        "e explicabilidade via IA. MVP 1 — Core Decision Engine."
+        "e explicabilidade via IA. MVP 2 — Distributed Architecture."
     ),
     lifespan=lifespan,
 )

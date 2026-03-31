@@ -13,7 +13,7 @@ import asyncio
 import os
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Adiciona o path do serviço decision-api
 sys.path.insert(

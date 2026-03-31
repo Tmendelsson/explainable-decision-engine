@@ -1,8 +1,33 @@
-# Modelo de Auditoria
+# Modelo de Auditoria — Explainable Credit Decision Engine
 
 ## Objetivo
 
-O sistema de auditoria garante **rastreabilidade completa e imutável** de cada decisão, incluindo o contexto de IA utilizado. Fundamental para compliance, explicabilidade forense e replay de decisões.
+O sistema de auditoria garante **rastreabilidade completa, imutável e reprocessável** de cada decisão.
+
+Ele foi projetado para suportar cenários com necessidade de:
+
+- compliance
+- explicabilidade forense
+- investigação operacional
+- replay de decisões
+- revisão de regras e políticas
+
+Esse componente é especialmente importante em domínios como:
+
+- crédito
+- elegibilidade financeira
+- revisão manual
+- prevenção de inconsistências e fraude
+
+---
+
+## Princípios do Modelo de Auditoria
+
+1. **Toda decisão deve ser reconstituível**
+2. **Toda entrada relevante deve ser rastreável**
+3. **A decisão deve ser explicável tecnicamente e operacionalmente**
+4. **A IA deve ser auditável, incluindo contexto e prompt**
+5. **Nenhum evento auditável pode ser alterado ou apagado**
 
 ---
 
@@ -33,56 +58,135 @@ CREATE TABLE audit_events (
     service_version TEXT NOT NULL
 );
 
--- Nunca atualizar, nunca deletar
 -- INSERT-only table
+-- Nunca atualizar, nunca deletar
 ```
 
 ---
 
-## Campos Obrigatórios por Evento
+## Estrutura Esperada por Evento
 
-### DecisionRequested
+### 1. DecisionRequested
+
 ```json
 {
   "transaction_id": "uuid",
   "correlation_id": "uuid",
   "cpf_hash": "sha256(cpf)",
   "product": "credit_card",
-  "payload_snapshot": { ... }
+  "payload_snapshot": {
+    "monthly_income": 5000,
+    "age": 30,
+    "credit_score": 650
+  }
 }
 ```
 
-### RulesEvaluated
+---
+
+### 2. EnrichmentCompleted
+
+```json
+{
+  "transaction_id": "uuid",
+  "credit_score_source": "mock_bureau_v1",
+  "fraud_flags": [],
+  "attempt_count_last_30d": 1,
+  "profile_risk_indicators": {
+    "income_consistency": "ok",
+    "application_velocity": "normal"
+  },
+  "latency_ms": 180
+}
+```
+
+---
+
+### 3. RulesEvaluated
+
 ```json
 {
   "transaction_id": "uuid",
   "base_decision": "deny",
   "risk_score": 72,
   "matched_rules": ["LOW_CREDIT_SCORE"],
-  "rules_version_snapshot": [ { "rule_id": "...", "version": 1 } ]
+  "manual_review_recommended": false,
+  "rules_version_snapshot": [
+    { "rule_id": "uuid", "version": 1 }
+  ]
 }
 ```
 
-### LLMReasoningCompleted
+---
+
+### 4. ContextRetrieved
+
+```json
+{
+  "transaction_id": "uuid",
+  "retrieved_chunks": [
+    {
+      "chunk_id": "uuid",
+      "title": "Política de Crédito Premium v2",
+      "version": "2",
+      "score": 0.91
+    }
+  ]
+}
+```
+
+---
+
+### 5. LLMReasoningCompleted
+
 ```json
 {
   "transaction_id": "uuid",
   "model_used": "gpt-4o-mini",
   "prompt_sent": "...",
-  "context_used": [ { "chunk_id": "...", "title": "...", "score": 0.91 } ],
-  "llm_response": { "decision_explanation": "...", "confidence_note": "high" },
+  "context_used": [
+    {
+      "chunk_id": "uuid",
+      "title": "Política de Crédito Premium v2",
+      "score": 0.91
+    }
+  ],
+  "llm_response": {
+    "decision_explanation": "...",
+    "confidence_note": "high"
+  },
   "latency_ms": 1240
 }
 ```
 
 ---
 
-## Princípios de Imutabilidade
+### 6. DecisionCompleted
 
-1. A tabela `audit_events` é **insert-only** — sem UPDATE, sem DELETE
-2. O `cpf` nunca é armazenado em claro — apenas `sha256(cpf)`
-3. Cada evento tem `service_version` para correlacionar com o deploy exato
-4. O prompt do LLM é registrado integralmente — incluindo contexto RAG injetado
+```json
+{
+  "transaction_id": "uuid",
+  "final_decision": "deny",
+  "risk_score": 72,
+  "matched_rules": ["LOW_CREDIT_SCORE"],
+  "policy_references": ["credit_policy_premium_v2"],
+  "manual_review_recommended": false
+}
+```
+
+---
+
+## Regras de Segurança e Privacidade
+
+### Dados sensíveis
+- `cpf` **nunca** deve ser armazenado em claro
+- apenas `sha256(cpf)` deve ser persistido em auditoria
+- dados sensíveis devem ser mascarados ou minimizados sempre que possível
+
+### IA auditável
+- o prompt do LLM deve ser registrado integralmente
+- o contexto recuperado pelo RAG deve ser persistido
+- a versão do modelo utilizado deve ser registrada
 
 ---
 
@@ -96,26 +200,46 @@ WHERE transaction_id = 'uuid'
 ORDER BY created_at;
 
 -- Todas as decisões de um CPF
-SELECT ae.transaction_id, ae.created_at, ae.payload->>'base_decision'
+SELECT ae.transaction_id, ae.created_at, ae.payload->>'final_decision'
 FROM audit_events ae
 WHERE ae.payload->>'cpf_hash' = sha256('12345678900')
   AND ae.event_type = 'DecisionCompleted';
 
--- Decisões com LLM em revisão manual
+-- Decisões encaminhadas para revisão manual
 SELECT *
 FROM audit_events
-WHERE event_type = 'LLMReasoningCompleted'
-  AND payload->>'manual_review_needed' = 'true';
+WHERE event_type = 'DecisionCompleted'
+  AND payload->>'manual_review_recommended' = 'true';
 ```
 
 ---
 
 ## Replay de Decisões (MVP 5)
 
-O modelo de auditoria permite **reprocessar** qualquer decisão histórica com:
+O modelo de auditoria foi desenhado para permitir **reprocessamento histórico**.
 
-- Novas versões de regras
-- Nova política carregada no RAG
-- Novo modelo de LLM
+Isso permite simular uma decisão antiga com:
 
-Isso é possível porque cada evento registra a versão exata dos componentes utilizados no momento da decisão original.
+- novas regras
+- nova política de crédito
+- novo contexto institucional
+- novo modelo de LLM
+
+Esse replay é possível porque cada evento registra:
+
+- versão das regras
+- versão dos documentos
+- versão do serviço
+- versão do modelo utilizado
+
+---
+
+## Valor Arquitetural
+
+Esse modelo de auditoria demonstra domínio em:
+
+- rastreabilidade enterprise
+- explicabilidade de sistemas críticos
+- observabilidade de negócio
+- segurança de dados
+- design para ambientes regulados

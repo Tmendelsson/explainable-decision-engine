@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -26,6 +26,7 @@ class DecisionRequest(BaseModel):
 
 class DecisionResponse(BaseModel):
     transaction_id: str
+    correlation_id: Optional[str] = None
     status: str
     decision: str
     risk_score: float
@@ -41,3 +42,4 @@ class DecisionDetailResponse(DecisionResponse):
     monthly_income: float
     age: int
     credit_score: Optional[int]
+    enriched_data: Optional[Dict[str, Any]] = None

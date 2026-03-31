@@ -1,74 +1,187 @@
-# Arquitetura — Explainable Decision Engine
+# Arquitetura — Explainable Credit Decision Engine
 
 ## Visão Macro
 
-O sistema é composto por **7 serviços** organizados em camadas:
+O sistema é composto por **7 serviços principais** organizados em camadas, com foco em:
 
+- análise de crédito
+- avaliação de risco
+- explicabilidade
+- auditabilidade
+- revisão manual assistida
+
+```text
+[Cliente / Sistema Externo]
+            ↓
+      [API Gateway]
+            ↓
+[Decision API / Orchestrator]
+      ↓                 ↓
+[Data Enrichment]   [PostgreSQL]
+      ↓
+   [RabbitMQ]
+   ↙         ↘
+[Rule Engine]   [Audit Service]
+      ↓
+[RAG Service] (pgvector)
+      ↓
+[LLM Reasoning Service]
+      ↓
+[Final Decision Composer]
 ```
-[Cliente] → [API Gateway] → [Decision API / Orchestrator]
-                                    ↓              ↓
-                          [Enrichment]        [PostgreSQL]
-                                    ↓
-                              [RabbitMQ]
-                             ↙          ↘
-                  [Rule Engine]        [Audit Service]
-                        ↓
-               [RAG Service] (pgvector)
-                        ↓
-            [LLM Reasoning Service]
-                        ↓
-           [Final Decision Composer]
-```
+
+---
+
+## Objetivo Arquitetural
+
+A arquitetura foi desenhada para separar claramente:
+
+- **decisão determinística**
+- **contextualização institucional**
+- **explicação assistida por IA**
+- **rastreabilidade forense**
+
+Isso garante que a plataforma possa operar em cenários mais sensíveis, como:
+
+- análise de crédito
+- elegibilidade financeira
+- triagem de inconsistências
+- revisão manual assistida
+- justificativa auditável de decisões
 
 ---
 
 ## Serviços
 
 ### 1. API Gateway
+**Responsabilidades:**
+- autenticação
+- rate limiting
+- roteamento
+- propagação de `correlation_id`
+- proteção da borda da aplicação
+
+**Stack sugerida:**
 - Nginx ou Traefik
-- Responsável por: autenticação, rate limiting, roteamento, propagação de `correlation_id`
+
+---
 
 ### 2. Decision API / Orchestrator
-- **Coração do sistema**
-- Recebe a requisição, gera `transaction_id`, coordena todo o fluxo
-- Não decide sozinho — **orquestra**
-- Persiste o estado inicial e o resultado final
+**Coração da plataforma.**
+
+Responsável por:
+
+- receber a solicitação de análise
+- validar o payload
+- gerar `transaction_id`
+- coordenar o fluxo
+- persistir estado inicial e resultado final
+- consolidar resposta ao cliente
+
+> Ele **não decide sozinho**.  
+> Seu papel é **orquestrar** a jornada da análise.
+
+---
 
 ### 3. Data Enrichment Service
-- Enriquece o perfil com sinais externos:
-  - score de crédito
-  - histórico de tentativas
-  - flags de fraude
-  - consistência cadastral
-- Fornece dados "frios" e objetivos para o motor
+Responsável por enriquecer a solicitação com sinais adicionais de risco e consistência.
+
+Exemplos de dados enriquecidos:
+- score de crédito
+- histórico de tentativas
+- flags de fraude
+- consistência cadastral
+- indicadores de perfil de risco
+
+Seu papel é fornecer dados objetivos e estruturados para a decisão.
+
+---
 
 ### 4. Rule Engine Service
-- **Decisor determinístico principal**
-- Carrega regras ativas do banco
-- Aplica regras eliminatórias e calcula score de risco
-- Emite: `base_decision`, `risk_score`, `matched_rules`
+É o **decisor determinístico principal**.
+
+Responsável por:
+
+- carregar regras ativas
+- aplicar regras eliminatórias
+- calcular score de risco
+- determinar a decisão base:
+  - `approve`
+  - `manual_review`
+  - `deny`
+
+Saídas principais:
+- `base_decision`
+- `risk_score`
+- `matched_rules`
+
+> A decisão **sempre nasce aqui**.
+
+---
 
 ### 5. RAG / Knowledge Retrieval Service
-- Indexa documentos de políticas e critérios
-- Gera e armazena embeddings no pgvector
-- Consulta por similaridade semântica + filtros de metadados
-- Retorna trechos relevantes para o contexto de raciocínio
+Responsável por recuperar contexto institucional relevante para a explicação.
+
+Funções:
+- indexar políticas, manuais e critérios
+- gerar embeddings
+- armazenar contexto no `pgvector`
+- recuperar trechos relevantes por similaridade semântica
+- filtrar por produto, tipo de política e versão ativa
+
+Exemplos de fontes:
+- política de crédito
+- diretrizes de elegibilidade
+- sinais de fraude
+- checklist de revisão manual
+
+---
 
 ### 6. LLM Reasoning Service
-- Recebe: resultado do motor + contexto do RAG
-- Gera: explicação estruturada, resumo para analista, recomendação de revisão
-- **Saída sempre em JSON validado — nunca altera a decisão base**
+Responsável por gerar explicações estruturadas e apoio à revisão humana.
+
+Recebe:
+- decisão base
+- score de risco
+- regras acionadas
+- contexto recuperado via RAG
+
+Gera:
+- explicação da decisão
+- resumo para analista
+- recomendação de revisão manual
+- justificativa em linguagem natural
+
+> O LLM **nunca altera a decisão base**.  
+> Seu papel é **explicar e apoiar**, não decidir.
+
+---
 
 ### 7. Audit Service
-- Escuta eventos via RabbitMQ
-- Persiste de forma imutável: input, enriched data, decisão, prompt, resposta do LLM, versões
-- Fundamental para compliance e explicabilidade forense
+Responsável por registrar de forma imutável todos os eventos da jornada de decisão.
+
+Registra:
+- payload original
+- dados enriquecidos
+- score e decisão
+- regras acionadas
+- contexto recuperado
+- prompt do LLM
+- resposta do LLM
+- versões dos componentes envolvidos
+
+Esse serviço é essencial para:
+
+- compliance
+- replay de decisões
+- explicabilidade forense
+- rastreabilidade operacional
 
 ---
 
 ## Fluxo de Dados
 
-```
+```text
 POST /decisions/credit-card
         ↓
   [Orchestrator]
@@ -89,12 +202,12 @@ POST /decisions/credit-card
   - base_decision = deny | approve | manual_review
         ↓
   [RAG Service]
-  - query semântica com contexto da decisão
-  - filtra por: produto, tipo de política, versão ativa
+  - consulta políticas relevantes
+  - filtra por produto, tipo e versão ativa
         ↓
   [LLM Reasoning]
-  - recebe: decisão + score + regras + contexto RAG
-  - gera: explanation, summary, manual_review_note
+  - recebe decisão + score + regras + contexto
+  - gera explanation, summary, review note
         ↓
   [Orchestrator]
   - consolida resposta final
@@ -105,7 +218,7 @@ POST /decisions/credit-card
 
 ---
 
-## Decisão Final — Estrutura
+## Estrutura da Resposta Final
 
 ```json
 {
@@ -125,11 +238,21 @@ POST /decisions/credit-card
 
 ## Separação de Responsabilidades
 
-| Camada | Quem faz | O que faz |
-|--------|----------|-----------|
+| Camada | Serviço | Papel |
+|--------|---------|-------|
 | Determinística | Rule Engine | **Decide** com regras objetivas |
 | Contextual | RAG Service | **Contextualiza** com políticas institucionais |
 | Explicativa | LLM Service | **Explica** e apoia revisão humana |
 | Rastreável | Audit Service | **Registra** tudo permanentemente |
 
-> A decisão **sempre** vem do motor de regras. O LLM nunca altera a decisão.
+> A plataforma foi desenhada para garantir que **a IA não substitua a lógica de negócio**, apenas a complemente com contexto e explicabilidade.
+
+---
+
+## Princípios Arquiteturais
+
+1. **Decisão sempre determinística**
+2. **Explicabilidade sem interferência da IA**
+3. **Auditabilidade por design**
+4. **Separação clara entre cálculo, contexto e explicação**
+5. **Preparação para cenários enterprise e regulados**

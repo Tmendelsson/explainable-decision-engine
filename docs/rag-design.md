@@ -2,19 +2,34 @@
 
 ## Objetivo
 
-O RAG (Retrieval-Augmented Generation) fornece **contexto institucional** para o LLM raciocinar sobre a decisão. Em vez de depender apenas de regras numéricas, o sistema consulta o "conhecimento corporativo" na forma de políticas, manuais e diretrizes.
+O RAG (Retrieval-Augmented Generation) fornece **contexto institucional e normativo** para a explicação da decisão.
+
+Em vez de depender apenas de score e regras numéricas, o sistema consulta o “conhecimento corporativo” da plataforma, incluindo:
+
+- políticas de crédito
+- critérios de elegibilidade
+- diretrizes de revisão manual
+- sinais de fraude
+- manuais operacionais
 
 ---
 
 ## Papel no Sistema
 
-```
+```text
 [Rule Engine] → decisão determinística
       +
-[RAG Service] → contexto de políticas relevantes
+[RAG Service] → contexto institucional relevante
       =
-[LLM Service] → explicação fundamentada e auditável
+[LLM Service] → explicação fundamentada, contextualizada e auditável
 ```
+
+---
+
+## Princípio Fundamental
+
+> O RAG **não decide**.  
+> Ele apenas fornece **base contextual** para que a explicação gerada seja mais precisa, útil e auditável.
 
 ---
 
@@ -24,7 +39,7 @@ O RAG (Retrieval-Augmented Generation) fornece **contexto institucional** para o
 |---------|------|-----------|
 | `credit_policy_v1.md` | credit_policy | Política geral de crédito |
 | `credit_policy_premium_v2.md` | credit_policy | Política para produtos premium |
-| `fraud_signals_guide.md` | compliance | Guia de sinais de fraude |
+| `fraud_signals_guide.md` | compliance | Guia de sinais de inconsistência e fraude |
 | `customer_eligibility_policy.md` | product_rules | Elegibilidade por produto |
 | `manual_review_checklist.md` | manual | Checklist de revisão humana |
 
@@ -32,7 +47,7 @@ O RAG (Retrieval-Augmented Generation) fornece **contexto institucional** para o
 
 ## Estrutura de Metadados
 
-Cada chunk indexado terá os seguintes metadados:
+Cada chunk indexado possui metadados para permitir filtragem contextual e auditável.
 
 ```json
 {
@@ -52,51 +67,64 @@ Cada chunk indexado terá os seguintes metadados:
 
 ## Pipeline de Indexação
 
-```
+```text
 1. Carregar documento (.md ou .txt)
-2. Chunking (tamanho: 512 tokens, overlap: 50 tokens)
-3. Gerar embeddings (OpenAI text-embedding-3-small ou sentence-transformers)
+2. Fazer chunking
+3. Gerar embeddings
 4. Salvar chunk + embedding + metadados no pgvector
 ```
+
+### Estratégia inicial
+- tamanho do chunk: `~512 tokens`
+- overlap: `~50 tokens`
 
 ---
 
 ## Pipeline de Recuperação
 
-```
-Query de entrada:
-  - produto: credit_card_gold
-  - decisão: deny
-  - regras acionadas: [LOW_CREDIT_SCORE, INCOME_INCONSISTENCY]
+### Exemplo de contexto de entrada
+- produto: `credit_card_gold`
+- decisão: `deny`
+- regras acionadas:
+  - `LOW_CREDIT_SCORE`
+  - `INCOME_INCONSISTENCY`
 
-1. Construir query semântica:
-   "políticas de elegibilidade para credit_card_gold com score baixo"
+### Fluxo de recuperação
 
-2. Filtros de metadados:
+```text
+1. Construir query semântica
+   Ex:
+   "políticas de elegibilidade para credit_card_gold com score baixo e inconsistência de renda"
+
+2. Aplicar filtros de metadados:
    - product_type IN (null, "credit_card_gold")
    - is_active = true
 
-3. Busca vetorial (top-k=5)
+3. Executar busca vetorial (top-k=5)
 
-4. Retornar: chunk_text, document_title, policy_type, version
+4. Retornar:
+   - chunk_text
+   - document_title
+   - policy_type
+   - version
 ```
 
 ---
 
 ## Estratégia de Consulta
 
-A consulta não é busca semântica pura. Combina:
+A recuperação combina:
 
 | Componente | Técnica |
 |-----------|---------|
 | Relevância semântica | cosine similarity no pgvector |
-| Filtros de produto | metadata filtering |
-| Filtros de versão ativa | metadata filtering |
-| Ranking | score de relevância + prioridade do tipo |
+| Filtro por produto | metadata filtering |
+| Filtro por versão ativa | metadata filtering |
+| Priorização | score semântico + prioridade do tipo |
 
 ---
 
-## Schema do Banco Vetorial (pgvector)
+## Schema do Banco Vetorial
 
 ```sql
 CREATE TABLE knowledge_chunks (
@@ -109,7 +137,7 @@ CREATE TABLE knowledge_chunks (
     source_file TEXT NOT NULL,
     chunk_index INT NOT NULL,
     chunk_text  TEXT NOT NULL,
-    embedding   vector(1536),  -- OpenAI ada-002 dimension
+    embedding   vector(1536),
     is_active   BOOLEAN DEFAULT true,
     created_at  TIMESTAMP NOT NULL
 );
@@ -121,16 +149,40 @@ CREATE INDEX ON knowledge_chunks USING ivfflat (embedding vector_cosine_ops);
 
 ## Guardrails
 
-1. **Limite de contexto** — máximo 5 chunks por consulta, cada um com no máximo 512 tokens
-2. **Sem inventar critérios** — prompt instrui o LLM a usar apenas o que foi recuperado
-3. **Versão auditada** — document_id e version de cada chunk são salvos no audit log
-4. **Fallback gracioso** — se RAG retornar vazio, LLM explica com base apenas nas regras acionadas
+1. **Limite de contexto**  
+   Máximo de 5 chunks por consulta
+
+2. **Sem inventar critérios**  
+   O LLM só pode explicar com base:
+   - nas regras acionadas
+   - no contexto recuperado
+
+3. **Versão auditada**  
+   Cada chunk usado é registrado no audit log
+
+4. **Fallback gracioso**  
+   Se não houver contexto relevante, o sistema explica apenas com base nas regras acionadas
+
+---
+
+## Valor de Produto
+
+O RAG aumenta a qualidade da explicação porque permite:
+
+- associar a decisão a políticas reais
+- justificar melhor revisão manual
+- apoiar o trabalho de analistas
+- enriquecer a trilha auditável
 
 ---
 
 ## Evolução Futura (MVP 5)
 
-- Upload de documentos via API
-- Reindexação automática por versão
-- Dashboard de documentos ativos
-- Avaliação de qualidade da recuperação (hit rate, MRR)
+- upload de documentos via API
+- reindexação automática
+- dashboard de documentos ativos
+- versionamento de políticas
+- avaliação de qualidade da recuperação:
+  - hit rate
+  - MRR
+  - cobertura por produto
